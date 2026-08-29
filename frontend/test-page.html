@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Voice Assist — Test Page</title>
+<style>
+  body {
+    background: #111;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 20px;
+  }
+  video, canvas {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 12px;
+    margin: 20px 0;
+  }
+  canvas { display: none; }
+  button {
+    font-size: 22px;
+    padding: 18px 32px;
+    border-radius: 12px;
+    border: none;
+    background: #ffcc00;
+    color: #111;
+    font-weight: bold;
+    cursor: pointer;
+    margin: 8px;
+  }
+  button:disabled {
+    background: #555;
+    color: #aaa;
+  }
+  #result {
+    font-size: 20px;
+    margin-top: 24px;
+    padding: 16px;
+    background: #222;
+    border-radius: 12px;
+    min-height: 40px;
+  }
+  #status {
+    color: #aaa;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Voice Assist — Test Page</h1>
+  <p id="status">Starting camera...</p>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <div>
+    <button id="captureBtn">📷 Capture & Describe</button>
+    <button id="repeatBtn" disabled>🔊 Repeat</button>
+  </div>
+
+  <div id="result">Description will appear here.</div>
+
+  <script>
+    // ⚠️ Change this if your backend runs on a different port or is deployed elsewhere
+    const BACKEND_URL = "http://localhost:3001/analyze";
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const captureBtn = document.getElementById("captureBtn");
+    const repeatBtn = document.getElementById("repeatBtn");
+    const resultDiv = document.getElementById("result");
+    const statusEl = document.getElementById("status");
+
+    let lastText = "";
+
+    // Start the camera as soon as the page loads
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        statusEl.textContent = "Camera ready. Tap Capture & Describe.";
+      } catch (err) {
+        statusEl.textContent = "Camera error: " + err.message;
+        console.error(err);
+      }
+    }
+
+    // Grab the current video frame as base64 JPEG (no data:URL prefix)
+    function captureFrame() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      return canvas.toDataURL("image/jpeg").split(",")[1];
+    }
+
+    function speak(text) {
+      speechSynthesis.cancel(); // stop any earlier speech first
+      const utterance = new SpeechSynthesisUtterance(text);
+      speechSynthesis.speak(utterance);
+    }
+
+    captureBtn.addEventListener("click", async () => {
+      captureBtn.disabled = true;
+      statusEl.textContent = "Capturing and sending to backend...";
+      resultDiv.textContent = "Thinking...";
+
+      try {
+        const image = captureFrame();
+
+        const response = await fetch(BACKEND_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image, command: "describe what you see" }),
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+          resultDiv.textContent = "Error: " + data.error;
+          statusEl.textContent = "Something went wrong. Check the backend terminal for details.";
+        } else {
+          lastText = data.text;
+          resultDiv.textContent = data.text;
+          statusEl.textContent = "Done. Tap Capture again, or Repeat to hear it again.";
+          speak(lastText);
+          repeatBtn.disabled = false;
+        }
+      } catch (err) {
+        resultDiv.textContent = "Could not reach the backend.";
+        statusEl.textContent = "Is your server running? (npm run dev)";
+        console.error(err);
+      }
+
+      captureBtn.disabled = false;
+    });
+
+    repeatBtn.addEventListener("click", () => {
+      if (lastText) speak(lastText);
+    });
+
+    startCamera();
+  </script>
+
+</body>
+</html>
